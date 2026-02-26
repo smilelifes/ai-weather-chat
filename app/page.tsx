@@ -1,6 +1,28 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+
+type SpeechRecognitionEvent = {
+  results: { [index: number]: { [index: number]: { transcript: string } } };
+};
+
+type SpeechRecognitionConstructor = new () => {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+declare global {
+  interface Window {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  }
+}
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -27,7 +49,7 @@ export default function Home() {
   const [ttsSupported, setTtsSupported] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const recognitionRef = useRef<{ stop: () => void } | null>(null);
 
   useEffect(() => {
     setSttSupported(
