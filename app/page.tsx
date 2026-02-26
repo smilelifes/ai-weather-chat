@@ -1,65 +1,264 @@
-import Image from "next/image";
+"use client";
+
+import { useState, useRef, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+
+type Message = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  meta?: { city: string; weather: string; temperature: number };
+};
 
 export default function Home() {
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      id: "init",
+      role: "assistant",
+      content: "안녕하세요! 날씨가 궁금한 지역을 물어보세요 ☁️",
+    },
+  ]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [autoSpeak, setAutoSpeak] = useState(false);
+  const [sttSupported, setSttSupported] = useState(false);
+  const [ttsSupported, setTtsSupported] = useState(false);
+
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+
+  useEffect(() => {
+    setSttSupported(
+      typeof window !== "undefined" &&
+        ("SpeechRecognition" in window || "webkitSpeechRecognition" in window)
+    );
+    setTtsSupported(
+      typeof window !== "undefined" && "speechSynthesis" in window
+    );
+  }, []);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
+
+  function speak(text: string) {
+    if (!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "ko-KR";
+    utterance.rate = 1;
+    window.speechSynthesis.speak(utterance);
+  }
+
+  function toggleListening() {
+    if (isListening) {
+      recognitionRef.current?.stop();
+      return;
+    }
+
+    const SpeechRecognitionAPI =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognitionAPI) return;
+
+    const recognition = new SpeechRecognitionAPI();
+    recognition.lang = "ko-KR";
+    recognition.interimResults = false;
+    recognition.continuous = false;
+
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      const transcript = event.results[0][0].transcript;
+      setInput(transcript);
+    };
+    recognition.onend = () => setIsListening(false);
+    recognition.onerror = () => setIsListening(false);
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    setIsListening(true);
+  }
+
+  async function sendMessage() {
+    const text = input.trim();
+    if (!text || loading) return;
+
+    const userMessage: Message = { id: crypto.randomUUID(), role: "user", content: text };
+    setMessages((prev) => [...prev, userMessage]);
+    setInput("");
+    setLoading(true);
+
+    try {
+      const res = await fetch("/api/weather", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_input: text }),
+      });
+      const data = await res.json();
+
+      if (data.error) {
+        setMessages((prev) => [
+          ...prev,
+          { id: crypto.randomUUID(), role: "assistant", content: `오류가 발생했습니다: ${data.error}` },
+        ]);
+      } else {
+        const assistantMessage: Message = {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: data.response,
+          meta: {
+            city: data.city,
+            weather: data.weather,
+            temperature: data.temperature,
+          },
+        };
+        setMessages((prev) => [...prev, assistantMessage]);
+        if (autoSpeak) speak(data.response);
+      }
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { id: crypto.randomUUID(), role: "assistant", content: "서버와 통신 중 오류가 발생했습니다." },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  }
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <div className="flex flex-col h-screen bg-zinc-50 dark:bg-zinc-950">
+      {/* Header */}
+      <header className="flex items-center justify-between px-6 py-4 border-b bg-white dark:bg-zinc-900 shadow-sm">
+        <div className="flex items-center gap-2">
+          <span className="text-2xl">🌤️</span>
+          <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+            AI 날씨 챗봇
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+        {ttsSupported && (
+          <button
+            onClick={() => setAutoSpeak((prev) => !prev)}
+            aria-label={autoSpeak ? "자동 읽기 끄기" : "자동 읽기 켜기"}
+            title={autoSpeak ? "자동 읽기 켜짐" : "자동 읽기 꺼짐"}
+            className={`text-xl px-2 py-1 rounded-lg transition-colors ${
+              autoSpeak
+                ? "bg-sky-100 dark:bg-sky-900 text-sky-600"
+                : "text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+            }`}
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+            {autoSpeak ? "🔊" : "🔇"}
+          </button>
+        )}
+      </header>
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
+        {messages.map((msg) => (
+          <div
+            key={msg.id}
+            className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
           >
-            Documentation
-          </a>
+            {msg.role === "assistant" && (
+              <div className="w-8 h-8 rounded-full bg-sky-100 dark:bg-sky-900 flex items-center justify-center text-sm mr-2 mt-1 shrink-0">
+                🤖
+              </div>
+            )}
+            <div className="max-w-[75%] space-y-1">
+              <div
+                className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                  msg.role === "user"
+                    ? "bg-sky-500 text-white rounded-tr-sm"
+                    : "bg-white dark:bg-zinc-800 text-zinc-800 dark:text-zinc-100 shadow-sm rounded-tl-sm"
+                }`}
+              >
+                {msg.content}
+              </div>
+              <div className="flex items-center gap-2 px-1">
+                {msg.meta && (
+                  <>
+                    <span className="text-xs text-zinc-400 bg-zinc-100 dark:bg-zinc-800 rounded-full px-2 py-0.5">
+                      📍 {msg.meta.city}
+                    </span>
+                    <span className="text-xs text-zinc-400 bg-zinc-100 dark:bg-zinc-800 rounded-full px-2 py-0.5">
+                      🌡️ {msg.meta.temperature}°C
+                    </span>
+                  </>
+                )}
+                {msg.role === "assistant" && ttsSupported && (
+                  <button
+                    onClick={() => speak(msg.content)}
+                    aria-label="메시지 읽기"
+                    className="text-xs text-zinc-400 hover:text-sky-500 transition-colors"
+                  >
+                    🔊
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+
+        {loading && (
+          <div className="flex justify-start">
+            <div className="w-8 h-8 rounded-full bg-sky-100 dark:bg-sky-900 flex items-center justify-center text-sm mr-2 mt-1 shrink-0">
+              🤖
+            </div>
+            <div className="bg-white dark:bg-zinc-800 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
+              <div className="flex gap-1 items-center h-5">
+                <span className="w-2 h-2 bg-zinc-400 rounded-full animate-bounce [animation-delay:0ms]" />
+                <span className="w-2 h-2 bg-zinc-400 rounded-full animate-bounce [animation-delay:150ms]" />
+                <span className="w-2 h-2 bg-zinc-400 rounded-full animate-bounce [animation-delay:300ms]" />
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Input */}
+      <div className="px-4 pb-6 pt-3 bg-white dark:bg-zinc-900 border-t">
+        <div className="flex gap-2 max-w-3xl mx-auto">
+          {sttSupported && (
+            <Button
+              onClick={toggleListening}
+              aria-label={isListening ? "음성 인식 중지" : "음성 입력 시작"}
+              variant="outline"
+              className={`rounded-full px-3 shrink-0 transition-colors ${
+                isListening
+                  ? "bg-red-50 border-red-300 text-red-500 dark:bg-red-950 dark:border-red-700"
+                  : ""
+              }`}
+            >
+              {isListening ? "⏹" : "🎤"}
+            </Button>
+          )}
+          <Input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={
+              isListening ? "듣는 중..." : "날씨를 물어보세요. 예) 서울 날씨 어때?"
+            }
+            disabled={loading || isListening}
+            className="flex-1 rounded-full bg-zinc-50 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700"
+          />
+          <Button
+            onClick={sendMessage}
+            disabled={loading || !input.trim()}
+            className="rounded-full px-5 bg-sky-500 hover:bg-sky-600 text-white shrink-0"
+          >
+            전송
+          </Button>
         </div>
-      </main>
+      </div>
     </div>
   );
 }
